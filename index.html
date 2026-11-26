@@ -1,357 +1,302 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>Cardboard Hand VR</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#090d12">
+<title>SPARTAN VR — Cardboard</title>
 <style>
-  *{box-sizing:border-box}
-  html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#050816;color:#fff;font-family:system-ui,-apple-system,Segoe UI,sans-serif}
-  #stage{position:fixed;inset:0;display:flex;background:#050816}
-  .eye{position:relative;width:50%;height:100%;overflow:hidden;border-right:1px solid #26324d}
-  canvas{width:100%;height:100%;display:block}
-  #video{position:fixed;width:2px;height:2px;opacity:.01;left:-10px;top:-10px}
-  #panel{position:fixed;z-index:5;left:50%;top:50%;transform:translate(-50%,-50%);width:min(90vw,430px);padding:22px;border:1px solid #52617f;border-radius:20px;background:rgba(8,14,31,.96);box-shadow:0 12px 60px #000b;text-align:center}
-  h1{font-size:25px;margin:0 0 8px}
-  p{font-size:14px;line-height:1.45;color:#cbd5e1}
-  button{border:0;border-radius:13px;padding:14px 18px;background:#5b8cff;color:#fff;font-size:16px;font-weight:700;width:100%;margin-top:8px}
-  #status{font-size:12px;color:#9fb4d8;margin-top:12px}
-  #hud{position:fixed;z-index:3;top:12px;left:50%;transform:translateX(-50%);background:#071226cc;padding:8px 14px;border:1px solid #52617f;border-radius:99px;font-size:13px;white-space:nowrap}
-  #hint{position:fixed;z-index:3;bottom:12px;left:50%;transform:translateX(-50%);background:#071226cc;padding:7px 12px;border-radius:12px;font-size:12px;color:#dbeafe;text-align:center;width:max-content;max-width:90vw}
-  #exit{position:fixed;z-index:6;right:10px;top:10px;width:auto;padding:9px 12px;font-size:12px;background:#25334f}
-#rotateNotice{display:none;position:fixed;inset:0;z-index:20;background:#050816;color:#fff;align-items:center;justify-content:center;text-align:center;padding:28px;font-size:22px;font-weight:700}
-@media (orientation: portrait){
-  #rotateNotice{display:flex}
-}
+:root{color-scheme:dark;font-family:system-ui,-apple-system,Arial,sans-serif}
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#090d12;color:#edf3f7}
+#view{position:fixed;inset:0;width:100%;height:100%;display:block}
+#menu{position:fixed;inset:0;z-index:5;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at center,#1b2935 0,#090d12 70%);padding:22px}
+.panel{width:min(520px,100%);max-height:95%;overflow:auto;background:#101923ed;border:1px solid #354858;border-radius:18px;padding:22px;box-shadow:0 18px 70px #000a}
+h1{font-size:clamp(32px,8vw,54px);letter-spacing:.12em;margin:0;color:#d9e5ec}h1 span{color:#d69b46}
+.sub{color:#aab9c5;margin:5px 0 18px;font-size:13px;letter-spacing:.16em}
+p{line-height:1.45;color:#d0d9df;font-size:14px}
+button{border:0;border-radius:11px;background:#d69b46;color:#17130d;font-weight:800;padding:14px 17px;font-size:15px;width:100%;margin:7px 0;cursor:pointer}
+button.secondary{background:#273744;color:#e5edf2;border:1px solid #455968}
+button:disabled{opacity:.5}
+.small{font-size:12px;color:#9fb0bc}
+#status{min-height:24px;color:#e5b66e;font-size:13px;margin-top:10px}
+#hud{position:fixed;z-index:2;top:8px;left:10px;right:10px;display:none;pointer-events:none;text-align:center;text-shadow:0 2px 4px #000;font-size:12px;color:#e9eef1}
+#hud strong{font-size:15px;letter-spacing:.14em;color:#e5b66e}
+#cam{position:fixed;width:2px;height:2px;opacity:.001;left:-10px;top:-10px}
+#debug{position:fixed;bottom:5px;left:8px;color:#9aabb6;font-size:10px;z-index:3;display:none;text-shadow:0 1px 3px #000}
+#exitHint{position:fixed;bottom:12px;right:12px;z-index:3;display:none;color:#d7e0e6;background:#10192399;padding:7px 10px;border-radius:8px;font-size:11px;pointer-events:none}
 </style>
 </head>
 <body>
-<div id="rotateNotice">📱 Girá el celular en horizontal para jugar con Cardboard.</div>\n<div id="stage">
-  <div class="eye"><canvas id="left"></canvas></div>
-  <div class="eye"><canvas id="right"></canvas></div>
-</div>
-<video id="video" autoplay playsinline muted></video>
-<button id="exit">Salir</button>
-<div id="hud">Espartanos rebotados: <b id="score">0</b> · Manos: <b id="hands">0</b></div>
-<div id="hint">🤘 Derecha: avanzar · 🤘 Izquierda: saltar · Palma abierta: empujar espartanos</div>
-<div id="panel">
-  <h1>🖐️ Cardboard Hand VR</h1>
-  <p>Arena arcade de espartanos con manos virtuales y controles por gestos.</p>
-  <p><b>Preparación:</b> permití el acceso a la cámara y al movimiento. Usá el celular en horizontal y dejá libre la cámara trasera.</p>
-  <button id="start">Iniciar experiencia</button>
-  <div id="status">Necesita conexión a internet para cargar el detector de manos.</div>
-</div>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
-<script>
-const video=document.getElementById('video');
-const panel=document.getElementById('panel');
-const statusEl=document.getElementById('status');
-const canvases=[document.getElementById('left'),document.getElementById('right')];
-const ctxs=canvases.map(c=>c.getContext('2d'));
-let stream=null, handsModel=null, running=false, handData=[], score=0, yaw=0, pitch=0;
-let playerZ=0, jump=0, jumpVel=0, lastAction=0, enemies=[];
-const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
-function resize(){
-  canvases.forEach(c=>{const r=c.parentElement.getBoundingClientRect();c.width=Math.max(1,Math.floor(r.width*devicePixelRatio));c.height=Math.max(1,Math.floor(r.height*devicePixelRatio));});
-}
-window.addEventListener('resize',resize); resize();
+<canvas id="view"></canvas>
+<video id="cam" playsinline muted></video>
+<div id="menu"><div class="panel">
+<h1>SPARTAN <span>VR</span></h1><div class="sub">CARDBOARD // FREE COMBAT ARENA</div>
+<p>Combate libre en una arena 3D. Mirá alrededor moviendo la cabeza y usá las manos delante de la cámara trasera del iPhone.</p>
+<p><b>Gestos:</b> puño cerrado = agarrar al enemigo cercano; abrir la mano = soltar/empujar; puñetazo rápido = golpear; pulgar + índice extendidos = proyectil de energía. Ambas manos se rastrean por separado.</p>
+<button id="start">INICIAR · CÁMARA + SENSOR</button>
+<button id="noCam" class="secondary">JUGAR SIN SEGUIMIENTO DE MANOS</button>
+<p class="small">Para Cardboard: horizontal, brillo medio, volumen bajo y teléfono bien sujeto. La cámara trasera debe poder ver tus manos delante del visor.</p>
+<div id="status">Esperando inicio…</div>
+<p class="small">Modo rendimiento: modelos low-poly, materiales planos y físicas limitadas. Este prototipo usa estereoscopía manual (dos cámaras 3D), giroscopio y físicas articuladas. Safari iOS no ofrece WebXR inmersivo de forma general.</p>
+</div></div>
+<div id="hud"><strong>SPARTAN VR</strong><br><span id="counts">Arena lista</span> · <span id="hands">Manos: sin iniciar</span></div>
+<div id="debug"></div><div id="exitHint">Para salir: tocá la pantalla y recargá</div>
+<script type="module">
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
+import * as CANNON from 'https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js';
 
-function makeEnemies(){
-  enemies=[];
-  for(let i=0;i<5;i++) enemies.push({
-    x:(Math.random()-.5)*5,
-    z:5+Math.random()*12,
-    bob:Math.random()*6.28,
-    wobble:0,
-    color:['#7dd3fc','#c4b5fd','#86efac','#fcd34d','#f9a8d4'][i]
-  });
+const $=s=>document.querySelector(s), canvas=$('#view'), video=$('#cam');
+const status=$('#status'), menu=$('#menu'), hud=$('#hud');
+let renderer,scene,world,camL,camR,headQ=new THREE.Quaternion(),yawOffset=0,deviceActive=false;
+let running=false,handLandmarker=null,stream=null,lastHandTime=0,handReady=false;
+const clock=new THREE.Clock(), enemies=[], projectiles=[], hands={Left:null,Right:null};
+const V=(x=0,y=0,z=0)=>new THREE.Vector3(x,y,z);
+const mat=(color,roughness=.8,metalness=0)=>new THREE.MeshStandardMaterial({color,roughness,metalness});
+const flat=(color)=>new THREE.MeshLambertMaterial({color,flatShading:true});
+const materials={bronze:flat(0x9b713d),dark:flat(0x252b30),red:flat(0x7d2924),skin:flat(0xb98562),steel:flat(0x87949c),gold:flat(0xc69a4b),floor:flat(0x343b40),wall:flat(0x202a31)};
+const tempQ=new THREE.Quaternion(), tempV=V();
+const projectileMaterial=new THREE.MeshBasicMaterial({color:0x7de8ff});
+const projectileGeometry=new THREE.SphereGeometry(.105,8,6);
+function makeRenderer(){
+ renderer=new THREE.WebGLRenderer({canvas,antialias:false,alpha:false,powerPreference:'high-performance'});
+ renderer.setPixelRatio(Math.min(devicePixelRatio||1,1.1));renderer.setSize(innerWidth,innerHeight,false);
+ renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.NoToneMapping;
+ renderer.setScissorTest(true);
+ scene=new THREE.Scene();scene.background=new THREE.Color(0x87939a);scene.fog=new THREE.Fog(0x87939a,14,30);
+ const hemi=new THREE.HemisphereLight(0xcbd8df,0x35302a,2.0);scene.add(hemi);
+ const sun=new THREE.DirectionalLight(0xffe1b2,2.3);sun.position.set(-5,10,4);scene.add(sun);
+ const fill=new THREE.DirectionalLight(0x9dbbd1,.7);fill.position.set(5,4,-6);scene.add(fill);
+ camL=new THREE.PerspectiveCamera(78,innerWidth/2/innerHeight,.05,80);
+ camR=new THREE.PerspectiveCamera(78,innerWidth/2/innerHeight,.05,80);
 }
-makeEnemies();
-
-function isUp(lm,tip,pip){return lm[tip].y < lm[pip].y;}
-function isRock(lm){
-  // Rock horns: index and pinky extended; middle and ring folded.
-  return isUp(lm,8,6) && isUp(lm,20,18) && !isUp(lm,12,10) && !isUp(lm,16,14);
+function buildArena(){
+ const floor=new THREE.Mesh(new THREE.PlaneGeometry(36,36),materials.floor);floor.rotation.x=-Math.PI/2;floor.position.y=-.06;scene.add(floor);
+ 
+ for(let i=0;i<4;i++){
+  const wall=new THREE.Mesh(new THREE.BoxGeometry(i%2?36:.35,5,.35),materials.wall);
+  wall.position.set(i===0?0:i===1?0:i===2?-18:18,2.5,i===0?-18:i===1?18:0);scene.add(wall);
+ }
+ for(let i=0;i<8;i++){const a=i*Math.PI/4;const p=new THREE.Mesh(new THREE.CylinderGeometry(.16,.22,3.8,6),materials.dark);p.position.set(Math.cos(a)*15,1.9,Math.sin(a)*15);scene.add(p);}
 }
-function isOpenPalm(lm){
-  return isUp(lm,8,6)&&isUp(lm,12,10)&&isUp(lm,16,14)&&isUp(lm,20,18);
+function makeBody({mass,shape,pos,material,group}){
+ const body=new CANNON.Body({mass,shape,position:new CANNON.Vec3(pos.x,pos.y,pos.z),material:world.defaultMaterial,linearDamping:.12,angularDamping:.25});
+ world.addBody(body);return body;
 }
-function onResults(results){
-  handData=[];
-  if(!results.multiHandLandmarks)return;
-  for(let i=0;i<results.multiHandLandmarks.length;i++){
-    const lm=results.multiHandLandmarks[i];
-    const rawLabel=results.multiHandedness?.[i]?.label || (i===0?'Right':'Left');
-    // MediaPipe handedness assumes a mirrored selfie image; the rear camera is not mirrored.
-    const label=rawLabel==='Right'?'Left':'Right';
-    handData.push({lm,label,rock:isRock(lm),palm:isOpenPalm(lm)});
+function addBoxMesh(parent,geo,material,pos){const m=new THREE.Mesh(geo,material);m.position.copy(pos);parent.add(m);return m}
+function makeSpartan(x,z,index){
+ const group=new THREE.Group();scene.add(group);
+ const parts={};const skin=materials.skin, armor=index%2?materials.red:materials.bronze;
+ function part(name,geo,material,pos){const m=addBoxMesh(group,geo,material,V(...pos));parts[name]=m;return m}
+ part('torso',new THREE.BoxGeometry(.66,.82,.34),armor,[0,1.35,0]);
+ part('chest',new THREE.BoxGeometry(.69,.27,.37),materials.gold,[0,1.55,-.015]);
+ part('head',new THREE.SphereGeometry(.22,8,6),skin,[0,2.02,0]);
+ part('helmet',new THREE.SphereGeometry(.255,8,6,0,Math.PI*2,0,Math.PI*.62),materials.steel,[0,2.12,0]);
+ part('crest',new THREE.BoxGeometry(.055,.48,.08),materials.red,[0,2.37,0]);
+ part('leftArm',new THREE.CapsuleGeometry(.105,.48,3,6),skin,[-.47,1.35,0]);
+ part('rightArm',new THREE.CapsuleGeometry(.105,.48,3,6),skin,[.47,1.35,0]);
+ part('leftLeg',new THREE.CapsuleGeometry(.14,.58,3,6),materials.dark,[-.2,.52,0]);
+ part('rightLeg',new THREE.CapsuleGeometry(.14,.58,3,6),materials.dark,[.2,.52,0]);
+ part('shield',new THREE.CylinderGeometry(.43,.43,.09,8),materials.bronze,[-.73,1.35,.08]).rotation.x=Math.PI/2;
+ part('sword',new THREE.BoxGeometry(.08,.78,.045),materials.steel,[.83,1.32,0]);
+ const bodies={};
+ bodies.torso=makeBody({mass:7,shape:new CANNON.Box(new CANNON.Vec3(.29,.36,.16)),pos:V(x,1.35,z)});
+ bodies.head=makeBody({mass:1.2,shape:new CANNON.Sphere(.19),pos:V(x,2.02,z)});
+ bodies.lArm=makeBody({mass:1.1,shape:new CANNON.Sphere(.13),pos:V(x-.47,1.35,z)});
+ bodies.rArm=makeBody({mass:1.1,shape:new CANNON.Sphere(.13),pos:V(x+.47,1.35,z)});
+ bodies.lLeg=makeBody({mass:2.2,shape:new CANNON.Sphere(.17),pos:V(x-.2,.52,z)});
+ bodies.rLeg=makeBody({mass:2.2,shape:new CANNON.Sphere(.17),pos:V(x+.2,.52,z)});
+ const joints=[];
+ const joint=(a,b,pA,pB)=>{const c=new CANNON.PointToPointConstraint(a,new CANNON.Vec3(...pA),b,new CANNON.Vec3(...pB),1e6);world.addConstraint(c);joints.push(c)};
+ joint(bodies.torso,bodies.head,[0,.43,0],[0,-.2,0]);
+ joint(bodies.torso,bodies.lArm,[-.32,.12,0],[.05,.05,0]);joint(bodies.torso,bodies.rArm,[.32,.12,0],[-.05,.05,0]);
+ joint(bodies.torso,bodies.lLeg,[-.16,-.4,0],[0,.18,0]);joint(bodies.torso,bodies.rLeg,[.16,-.4,0],[0,.18,0]);
+ const e={group,parts,bodies,joints,hp:100,dead:false,grabbed:false,ai:true,shield:parts.shield,weapon:parts.sword,phase:Math.random()*6.28,index};
+ enemies.push(e);return e;
+}
+function syncEnemy(e){
+ const map={torso:'torso',head:'head',lArm:'leftArm',rArm:'rightArm',lLeg:'leftLeg',rLeg:'rightLeg'};
+ for(const [b,m] of Object.entries(map)){const body=e.bodies[b],mesh=e.parts[m];mesh.position.set(body.position.x,body.position.y,body.position.z);mesh.quaternion.set(body.quaternion.x,body.quaternion.y,body.quaternion.z,body.quaternion.w);}
+ e.parts.chest.position.copy(e.parts.torso.position).add(V(0,.18,0));
+ e.parts.helmet.position.copy(e.parts.head.position).add(V(0,.09,0));e.parts.crest.position.copy(e.parts.head.position).add(V(0,.34,0));
+ e.parts.shield.position.copy(e.parts.lArm.position).add(V(-.22,0,.08));e.parts.sword.position.copy(e.parts.rArm.position).add(V(.2,-.12,0));
+}
+function spawnEnemy(){
+ if(enemies.filter(e=>!e.dead).length>=3)return;
+ const a=Math.random()*Math.PI*2,r=4+Math.random()*3;makeSpartan(Math.cos(a)*r,Math.sin(a)*r,enemies.length);
+}
+function initPhysics(){
+ world=new CANNON.World({gravity:new CANNON.Vec3(0,-9.82,0)});world.broadphase=new CANNON.SAPBroadphase(world);world.allowSleep=true;world.solver.iterations=5;world.solver.tolerance=.01;
+ world.defaultMaterial=new CANNON.Material('default');
+ world.addContactMaterial(new CANNON.ContactMaterial(world.defaultMaterial,world.defaultMaterial,{friction:.55,restitution:.05}));
+ const ground=new CANNON.Body({mass:0,shape:new CANNON.Plane()});ground.quaternion.setFromEuler(-Math.PI/2,0,0);world.addBody(ground);
+}
+function setBodyPosition(body,p){body.position.set(p.x,p.y,p.z);body.velocity.set(0,0,0);body.wakeUp()}
+function handWorld(lm){
+ // La cámara trasera mira hacia el frente del jugador; se proyecta la mano a una zona de alcance.
+ const x=(.5-lm[0]) * 2.4, y=(.5-lm[1])*1.8+1.15;
+ const forward=V(0,0,-1).applyQuaternion(headQ);
+ const right=V(1,0,0).applyQuaternion(headQ);
+ return V(0,1.25,0).addScaledVector(forward,1.25).addScaledVector(right,x).add(V(0,y-1.25,0));
+}
+function createHand(side){
+ const g=new THREE.Group();scene.add(g);const palm=new THREE.Mesh(new THREE.SphereGeometry(.095,8,7),mat(0xd8b18c));
+ g.add(palm);for(let i=0;i<5;i++){const f=new THREE.Mesh(new THREE.CapsuleGeometry(.022,.11,2,5),mat(0xc79b77));f.position.set((i-2)*.037,-.06,-.015);g.add(f)}
+ return {group:g,side,gesture:'open',candidate:'open',stable:0,lastPos:V(),velocity:V(),lastTime:0,seen:false,fireCooldown:0,grab:null};
+}
+hands.Left=createHand('Left');hands.Right=createHand('Right');
+function fingerUp(lm,tip,pip){return lm[tip].y<lm[pip].y-.025}
+function classify(lm){
+ const wrist=lm[0],tips=[8,12,16,20],pips=[6,10,14,18];
+ const extended=tips.map((t,i)=>fingerUp(lm,t,pips[i]));
+ const thumb= Math.hypot(lm[4].x-lm[2].x,lm[4].y-lm[2].y)>.085;
+ const pinch= Math.hypot(lm[4].x-lm[8].x,lm[4].y-lm[8].y)<.055;
+ if(thumb&&extended[0]&&!extended[1]&&!extended[2]&&!extended[3])return 'projectile';
+ if(extended.every(Boolean))return 'open';
+ if(!extended.some(Boolean)&&!thumb)return 'fist';
+ if(extended[0]&&!extended[1]&&!extended[2]&&!extended[3])return 'point';
+ return 'open';
+}
+function damageEnemy(e,amount,impulse,at){
+ if(!e||e.dead)return;e.hp=Math.max(0,e.hp-amount);
+ const b=e.bodies.torso;b.applyImpulse(new CANNON.Vec3(impulse.x,impulse.y,impulse.z),new CANNON.Vec3(at.x,at.y,at.z));
+ if(e.hp<=0)killEnemy(e);
+}
+function killEnemy(e){
+ if(e.dead)return;e.dead=true;e.ai=false;
+ // Ragdoll: se mantienen cuerpos y articulaciones; se liberan uniones para una caída libre articulada.
+ e.joints.forEach(c=>world.removeConstraint(c));e.joints.length=0;
+ for(const b of Object.values(e.bodies)){b.wakeUp();b.applyImpulse(new CANNON.Vec3((Math.random()-.5)*1.2,1.2,(Math.random()-.5)*1.2),b.position);}
+ e.parts.torso.material=materials.dark;
+}
+function nearestEnemy(pos,max=1.8){
+ let best=null,d=max;for(const e of enemies){if(e.dead)continue;const p=e.bodies.torso.position;const n=Math.hypot(p.x-pos.x,p.y-pos.y,p.z-pos.z);if(n<d){d=n;best=e;}}
+ return best;
+}
+function grabEnemy(h){
+ const e=nearestEnemy(h.group.position,2.1);if(!e)return;
+ h.grab=e;e.grabbed=true;for(const b of Object.values(e.bodies))b.wakeUp();
+}
+function releaseEnemy(h,push=false){
+ const e=h.grab;if(!e)return;e.grabbed=false;h.grab=null;
+ if(push){const d=V(0,0,-1).applyQuaternion(headQ);e.bodies.torso.applyImpulse(new CANNON.Vec3(d.x*5,d.y*5+1,d.z*5),e.bodies.torso.position);}
+}
+function spawnProjectile(h){
+ if(h.fireCooldown>0)return;h.fireCooldown=.55;
+ const d=V(0,0,-1).applyQuaternion(headQ);const p=h.group.position.clone().addScaledVector(d,.22);
+ const mesh=new THREE.Mesh(projectileGeometry,projectileMaterial);
+ mesh.position.copy(p);scene.add(mesh);
+ projectiles.push({mesh,vel:d.multiplyScalar(11),life:2});
+}
+function updateHand(h,lm,now){
+ const p=handWorld(lm);h.group.position.lerp(p,.55);h.seen=true;
+ const dt=h.lastTime?Math.max(.001,(now-h.lastTime)/1000):.016;h.velocity.copy(p).sub(h.lastPos).multiplyScalar(1/dt);
+ h.lastPos.copy(p);h.lastTime=now;
+ const candidate=classify(lm);
+ if(candidate===h.candidate)h.stable++;else{h.candidate=candidate;h.stable=0;}
+ if(h.stable>=3&&candidate!==h.gesture){
+  const prev=h.gesture;h.gesture=candidate;
+  if(candidate==='fist'&&prev!=='fist'&&h.side==='Right')grabEnemy(h);
+  if(candidate==='open'&&prev==='fist'&&h.side==='Right')releaseEnemy(h,true);
+  if(candidate==='projectile')spawnProjectile(h);
+ }
+ if(h.gesture==='fist'&&h.grab){
+  const e=h.grab;const target=p.clone().add(V(0,-.15,-.25));
+  const b=e.bodies.torso;b.velocity.set((target.x-b.position.x)*8,(target.y-b.position.y)*8,(target.z-b.position.z)*8);
+  if(h.velocity.length()>4.5){damageEnemy(e,8,h.velocity.clone().multiplyScalar(.16),V(b.position.x,b.position.y,b.position.z));}
+ }else if(h.velocity.length()>5.8&&h.fireCooldown<=0&&h.gesture!=='projectile'){
+  const e=nearestEnemy(p,1.35);if(e){damageEnemy(e,13,h.velocity.clone().multiplyScalar(.22),V(e.bodies.torso.position.x,e.bodies.torso.position.y,e.bodies.torso.position.z));h.fireCooldown=.25;}
+ }
+ h.fireCooldown=Math.max(0,h.fireCooldown-dt);
+ h.group.visible=true;
+}
+async function startHands(){
+ if(!navigator.mediaDevices?.getUserMedia){status.textContent='Este Safari no ofrece acceso a cámara.';return false;}
+ try{
+  stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:'environment'},width:{ideal:320},height:{ideal:240},frameRate:{ideal:15,max:20}}});
+  video.srcObject=stream;await video.play();
+  status.textContent='Cámara activa. Cargando reconocimiento de manos…';
+  const vision=await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/+esm');
+  const fileset=await vision.FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm');
+  handLandmarker=await vision.HandLandmarker.createFromOptions(fileset,{baseOptions:{modelAssetPath:'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',delegate:'GPU'},runningMode:'VIDEO',numHands:2,minHandDetectionConfidence:.55,minHandPresenceConfidence:.5,minTrackingConfidence:.55});
+  handReady=true;status.textContent='Seguimiento activo: mostrà las manos delante del visor.';return true;
+ }catch(err){console.warn(err);status.textContent='No se pudo iniciar cámara/MediaPipe: '+(err.message||err);return false;}
+}
+function detectHands(now){
+ if(!handLandmarker||video.readyState<2||now-lastHandTime<110)return;lastHandTime=now;
+ try{
+  const result=handLandmarker.detectForVideo(video,now);
+  for(const h of Object.values(hands))h.seen=false;
+  for(let i=0;i<(result.landmarks||[]).length;i++){
+   const label=result.handedness?.[i]?.[0]?.categoryName||'Right';
+   const h=hands[label]||hands.Right;updateHand(h,result.landmarks[i],now);
   }
-  document.getElementById('hands').textContent=handData.length;
+  for(const h of Object.values(hands))if(!h.seen){h.group.visible=false;if(h.grab)releaseEnemy(h,false);h.stable=0;}
+  $('#hands').textContent='Manos: '+(Object.values(hands).filter(h=>h.seen).length)+'/2';
+ }catch(e){console.warn('MediaPipe:',e);}
 }
-function roundedRect(ctx,x,y,w,h,r){
-  ctx.beginPath();ctx.roundRect(x,y,w,h,r);ctx.fill();
+function onOrientation(e){
+ if(e.alpha==null)return;
+ const orient=screen.orientation?.angle||window.orientation||0;
+ const zee=new THREE.Euler(),q=new THREE.Quaternion(),q1=new THREE.Quaternion(-Math.sqrt(.5),0,0,Math.sqrt(.5)),q0=new THREE.Quaternion();
+ zee.set(THREE.MathUtils.degToRad(e.beta||0),THREE.MathUtils.degToRad(e.alpha||0),-THREE.MathUtils.degToRad(e.gamma||0),'YXZ');
+ q.setFromEuler(zee);q.multiply(q1);q.multiply(q0);
+ if(orient)q.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1),-THREE.MathUtils.degToRad(orient)));
+ headQ.copy(q);
 }
-function drawSpartan(ctx,x,y,size,color,t){
-  // Human-proportioned Spartan fighter, rendered as a detailed 2D game character.
-  ctx.save();
-  ctx.translate(x,y+Math.sin(t)*size*.012);
-  const s=size;
-  ctx.lineCap='round';ctx.lineJoin='round';
-
-  // Ground shadow
-  ctx.fillStyle='rgba(0,0,0,.32)';
-  ctx.beginPath();ctx.ellipse(0,s*.52,s*.43,s*.09,0,0,Math.PI*2);ctx.fill();
-
-  // Legs: thighs, knees, calves and leather sandals
-  ctx.fillStyle='#b77a55';
-  ctx.beginPath();ctx.moveTo(-s*.23,s*.13);ctx.quadraticCurveTo(-s*.31,s*.28,-s*.23,s*.43);ctx.lineTo(-s*.10,s*.43);ctx.lineTo(-s*.07,s*.16);ctx.closePath();ctx.fill();
-  ctx.beginPath();ctx.moveTo(s*.07,s*.16);ctx.lineTo(s*.10,s*.43);ctx.lineTo(s*.23,s*.43);ctx.quadraticCurveTo(s*.31,s*.28,s*.23,s*.13);ctx.closePath();ctx.fill();
-  ctx.fillStyle='#d0a078';
-  ctx.beginPath();ctx.ellipse(-s*.17,s*.31,s*.075,s*.105,-.1,0,Math.PI*2);ctx.fill();
-  ctx.beginPath();ctx.ellipse(s*.17,s*.31,s*.075,s*.105,.1,0,Math.PI*2);ctx.fill();
-  // Bronze greaves
-  ctx.fillStyle='#b78343';
-  ctx.beginPath();ctx.moveTo(-s*.245,s*.29);ctx.lineTo(-s*.095,s*.29);ctx.lineTo(-s*.10,s*.46);ctx.lineTo(-s*.23,s*.46);ctx.closePath();ctx.fill();
-  ctx.beginPath();ctx.moveTo(s*.095,s*.29);ctx.lineTo(s*.245,s*.29);ctx.lineTo(s*.23,s*.46);ctx.lineTo(s*.10,s*.46);ctx.closePath();ctx.fill();
-  ctx.strokeStyle='#e7bd75';ctx.lineWidth=s*.012;
-  ctx.beginPath();ctx.moveTo(-s*.17,s*.31);ctx.lineTo(-s*.17,s*.43);ctx.moveTo(s*.17,s*.31);ctx.lineTo(s*.17,s*.43);ctx.stroke();
-  ctx.fillStyle='#4b3026';
-  ctx.beginPath();ctx.ellipse(-s*.18,s*.49,s*.13,s*.045,-.06,0,Math.PI*2);ctx.fill();
-  ctx.beginPath();ctx.ellipse(s*.18,s*.49,s*.13,s*.045,.06,0,Math.PI*2);ctx.fill();
-
-  // Neck and realistic torso silhouette
-  ctx.fillStyle='#b77a55';
-  ctx.fillRect(-s*.085,-s*.20,s*.17,s*.16);
-  ctx.fillStyle='#c58a62';
-  ctx.beginPath();
-  ctx.moveTo(-s*.12,-s*.12);
-  ctx.quadraticCurveTo(-s*.30,-s*.16,-s*.38,-s*.04);
-  ctx.lineTo(-s*.31,s*.18);
-  ctx.quadraticCurveTo(0,s*.27,s*.31,s*.18);
-  ctx.lineTo(s*.38,-s*.04);
-  ctx.quadraticCurveTo(s*.30,-s*.16,s*.12,-s*.12);
-  ctx.closePath();ctx.fill();
-
-  // Arms with shoulder, biceps and forearms visible around armor
-  ctx.fillStyle='#b77a55';
-  ctx.beginPath();ctx.ellipse(-s*.36,s*.00,s*.105,s*.17,-.22,0,Math.PI*2);ctx.fill();
-  ctx.beginPath();ctx.ellipse(s*.36,s*.00,s*.105,s*.17,.22,0,Math.PI*2);ctx.fill();
-  ctx.fillStyle='#ce936b';
-  ctx.beginPath();ctx.ellipse(-s*.40,s*.17,s*.075,s*.14,-.18,0,Math.PI*2);ctx.fill();
-  ctx.beginPath();ctx.ellipse(s*.40,s*.17,s*.075,s*.14,.18,0,Math.PI*2);ctx.fill();
-
-  // Red leather skirt panels
-  ctx.fillStyle='#8f2527';
-  ctx.beginPath();ctx.moveTo(-s*.29,s*.13);ctx.lineTo(s*.29,s*.13);ctx.lineTo(s*.25,s*.31);ctx.lineTo(-s*.25,s*.31);ctx.closePath();ctx.fill();
-  for(let i=-2;i<=2;i++){
-    ctx.fillStyle=i%2?'#b83232':'#7f2024';
-    ctx.beginPath();ctx.moveTo(i*s*.105-s*.045,s*.16);ctx.lineTo(i*s*.105+s*.045,s*.16);ctx.lineTo(i*s*.105+s*.055,s*.30);ctx.lineTo(i*s*.105-s*.055,s*.30);ctx.closePath();ctx.fill();
+async function enableSensors(){
+ if(typeof DeviceOrientationEvent!=='undefined'&&typeof DeviceOrientationEvent.requestPermission==='function'){
+  const perm=await DeviceOrientationEvent.requestPermission();if(perm!=='granted')throw Error('Permiso de movimiento denegado');
+ }
+ window.addEventListener('deviceorientation',onOrientation,true);deviceActive=true;
+}
+function calibrate(){yawOffset=headQ.y;headQ.identity();}
+function renderStereo(){
+ const w=innerWidth,h=innerHeight,ipd=.064;
+ camL.aspect=(w/2)/h;camR.aspect=(w/2)/h;camL.updateProjectionMatrix();camR.updateProjectionMatrix();
+ const forward=V(0,0,-1).applyQuaternion(headQ);const right=V(1,0,0).applyQuaternion(headQ);
+ const center=V(0,1.65,0);const yawFix=new THREE.Quaternion().setFromAxisAngle(V(0,1,0),-yawOffset);
+ tempQ.copy(headQ).multiply(yawFix);
+ camL.position.copy(center).addScaledVector(right,-ipd/2);camR.position.copy(center).addScaledVector(right,ipd/2);
+ camL.quaternion.copy(tempQ);camR.quaternion.copy(tempQ);
+ renderer.setScissor(0,0,Math.floor(w/2),h);renderer.setViewport(0,0,Math.floor(w/2),h);renderer.render(scene,camL);
+ renderer.setScissor(Math.floor(w/2),0,w-Math.floor(w/2),h);renderer.setViewport(Math.floor(w/2),0,w-Math.floor(w/2),h);renderer.render(scene,camR);
+}
+function update(dt){
+ world.step(1/60,Math.min(dt,.033),2);
+ const player=V(0,0,0);
+ for(const e of enemies){
+  if(!e.dead&&!e.grabbed&&e.ai){
+   const b=e.bodies.torso,dx=-b.position.x,dz=-b.position.z,d=Math.hypot(dx,dz);
+   if(d>1.45){b.velocity.x+=(dx/(d||1))*1.15*dt;b.velocity.z+=(dz/(d||1))*1.15*dt;}
+   else if(Math.random()<.012){b.applyImpulse(new CANNON.Vec3(dx/(d||1)*.5,.15,dz/(d||1)*.5),b.position);}
   }
-
-  // Bronze cuirass shaped to the chest, with highlights and engraved details
-  ctx.fillStyle='#98652f';
-  ctx.beginPath();
-  ctx.moveTo(-s*.28,-s*.12);ctx.quadraticCurveTo(-s*.19,-s*.23,0,-s*.18);
-  ctx.quadraticCurveTo(s*.19,-s*.23,s*.28,-s*.12);
-  ctx.lineTo(s*.24,s*.12);ctx.quadraticCurveTo(0,s*.20,-s*.24,s*.12);ctx.closePath();ctx.fill();
-  const metal=ctx.createLinearGradient(-s*.25,0,s*.25,0);
-  metal.addColorStop(0,'#9b6b36');metal.addColorStop(.45,'#f0cf87');metal.addColorStop(1,'#8a592a');
-  ctx.fillStyle=metal;
-  ctx.beginPath();ctx.moveTo(-s*.245,-s*.12);ctx.quadraticCurveTo(-s*.16,-s*.19,0,-s*.16);ctx.quadraticCurveTo(s*.16,-s*.19,s*.245,-s*.12);ctx.lineTo(s*.20,s*.105);ctx.quadraticCurveTo(0,s*.17,-s*.20,s*.105);ctx.closePath();ctx.fill();
-  ctx.strokeStyle='#79502c';ctx.lineWidth=s*.012;
-  ctx.beginPath();ctx.moveTo(0,-s*.14);ctx.lineTo(0,s*.13);ctx.moveTo(-s*.17,-s*.04);ctx.quadraticCurveTo(0,s*.02,s*.17,-s*.04);ctx.stroke();
-
-  // Shield on the left side of the warrior (right side of viewer)
-  ctx.fillStyle='#6b4529';
-  ctx.beginPath();ctx.ellipse(s*.46,s*.12,s*.16,s*.25,.12,0,Math.PI*2);ctx.fill();
-  ctx.fillStyle='#bd873e';
-  ctx.beginPath();ctx.ellipse(s*.46,s*.12,s*.145,s*.23,.12,0,Math.PI*2);ctx.fill();
-  ctx.strokeStyle='#f0cf87';ctx.lineWidth=s*.018;ctx.stroke();
-  ctx.fillStyle='#7f2928';
-  ctx.beginPath();ctx.arc(s*.46,s*.12,s*.085,0,Math.PI*2);ctx.fill();
-  ctx.fillStyle='#f4d28b';
-  ctx.beginPath();ctx.arc(s*.46,s*.12,s*.035,0,Math.PI*2);ctx.fill();
-
-  // Short Greek xiphos sword held in the warrior's free hand.
-  ctx.save();
-  ctx.translate(-s*.43,s*.12);
-  ctx.rotate(-.20);
-  ctx.fillStyle='#6b4428';
-  ctx.fillRect(-s*.035,-s*.07,s*.07,s*.15);
-  ctx.fillStyle='#d7ad68';
-  ctx.fillRect(-s*.075,s*.055,s*.15,s*.035);
-  ctx.fillStyle='#c5d4e2';
-  ctx.beginPath();
-  ctx.moveTo(-s*.045,s*.08);ctx.lineTo(s*.045,s*.08);
-  ctx.lineTo(s*.035,-s*.30);ctx.lineTo(0,-s*.39);
-  ctx.lineTo(-s*.035,-s*.30);ctx.closePath();ctx.fill();
-  ctx.strokeStyle='#f7fbff';ctx.lineWidth=s*.009;
-  ctx.beginPath();ctx.moveTo(0,s*.07);ctx.lineTo(0,-s*.34);ctx.stroke();
-  ctx.restore();
-
-  // Human head, jaw, ears, nose, eyes and beard stubble
-  ctx.fillStyle='#b77a55';
-  ctx.beginPath();ctx.moveTo(-s*.15,-s*.39);ctx.quadraticCurveTo(-s*.17,-s*.23,-s*.10,-s*.17);
-  ctx.quadraticCurveTo(0,-s*.11,s*.10,-s*.17);ctx.quadraticCurveTo(s*.17,-s*.23,s*.15,-s*.39);
-  ctx.quadraticCurveTo(0,-s*.50,-s*.15,-s*.39);ctx.fill();
-  ctx.fillStyle='#c98d65';
-  ctx.beginPath();ctx.ellipse(-s*.16,-s*.31,s*.035,s*.065,0,0,Math.PI*2);ctx.fill();
-  ctx.beginPath();ctx.ellipse(s*.16,-s*.31,s*.035,s*.065,0,0,Math.PI*2);ctx.fill();
-  ctx.fillStyle='#33251f';
-  ctx.beginPath();ctx.ellipse(-s*.065,-s*.33,s*.022,s*.014,0,0,Math.PI*2);ctx.fill();
-  ctx.beginPath();ctx.ellipse(s*.065,-s*.33,s*.022,s*.014,0,0,Math.PI*2);ctx.fill();
-  ctx.strokeStyle='#70432f';ctx.lineWidth=s*.012;
-  ctx.beginPath();ctx.moveTo(-s*.09,-s*.36);ctx.lineTo(-s*.035,-s*.37);ctx.moveTo(s*.035,-s*.37);ctx.lineTo(s*.09,-s*.36);ctx.stroke();
-  ctx.beginPath();ctx.moveTo(0,-s*.33);ctx.lineTo(-s*.018,-s*.27);ctx.lineTo(s*.018,-s*.27);ctx.stroke();
-  ctx.beginPath();ctx.moveTo(-s*.045,-s*.225);ctx.quadraticCurveTo(0,-s*.20,s*.045,-s*.225);ctx.stroke();
-  // Short dark beard
-  ctx.fillStyle='#50352b';
-  ctx.beginPath();ctx.moveTo(-s*.11,-s*.235);ctx.quadraticCurveTo(0,-s*.15,s*.11,-s*.235);ctx.lineTo(s*.065,-s*.17);ctx.quadraticCurveTo(0,-s*.12,-s*.065,-s*.17);ctx.closePath();ctx.fill();
-
-  // Bronze Corinthian helmet with cheek guards and red horsehair crest
-  ctx.fillStyle='#8b5b2d';
-  ctx.beginPath();ctx.arc(0,-s*.39,s*.19,Math.PI,Math.PI*2);ctx.lineTo(s*.18,-s*.30);ctx.lineTo(-s*.18,-s*.30);ctx.closePath();ctx.fill();
-  const helm=ctx.createLinearGradient(-s*.17,0,s*.17,0);
-  helm.addColorStop(0,'#94612d');helm.addColorStop(.5,'#f0cb7a');helm.addColorStop(1,'#9c652e');
-  ctx.fillStyle=helm;
-  ctx.beginPath();ctx.arc(0,-s*.39,s*.17,Math.PI,Math.PI*2);ctx.lineTo(s*.16,-s*.30);ctx.lineTo(-s*.16,-s*.30);ctx.closePath();ctx.fill();
-  ctx.fillStyle='#a3262b';
-  ctx.beginPath();ctx.moveTo(-s*.015,-s*.53);ctx.quadraticCurveTo(-s*.22,-s*.75,s*.02,-s*.77);ctx.quadraticCurveTo(s*.22,-s*.70,s*.09,-s*.51);ctx.closePath();ctx.fill();
-  ctx.fillStyle='#b27a3d';
-  ctx.beginPath();ctx.moveTo(-s*.17,-s*.36);ctx.lineTo(-s*.13,-s*.20);ctx.lineTo(-s*.055,-s*.23);ctx.lineTo(-s*.07,-s*.38);ctx.closePath();ctx.fill();
-  ctx.beginPath();ctx.moveTo(s*.17,-s*.36);ctx.lineTo(s*.13,-s*.20);ctx.lineTo(s*.055,-s*.23);ctx.lineTo(s*.07,-s*.38);ctx.closePath();ctx.fill();
-  ctx.strokeStyle='#f4d28b';ctx.lineWidth=s*.012;
-  ctx.beginPath();ctx.arc(0,-s*.39,s*.17,Math.PI,Math.PI*2);ctx.stroke();
-  ctx.restore();
+  syncEnemy(e);
+ }
+ for(let i=projectiles.length-1;i>=0;i--){
+  const p=projectiles[i];p.mesh.position.addScaledVector(p.vel,dt);p.life-=dt;
+  let hit=false;
+  for(const e of enemies){if(e.dead)continue;const b=e.bodies.torso;if(p.mesh.position.distanceTo(V(b.position.x,b.position.y,b.position.z))<.62){damageEnemy(e,35,p.vel.clone().multiplyScalar(.15),V(b.position.x,b.position.y,b.position.z));hit=true;break;}}
+  if(hit||p.life<=0){scene.remove(p.mesh);projectiles.splice(i,1);}
+ }
+ $('#counts').textContent='Enemigos activos: '+enemies.filter(e=>!e.dead).length+' · Derribados: '+enemies.filter(e=>e.dead).length;
 }
-function drawHand(ctx,hand,w,h,eyeShift){
-  const lm=hand.lm;
-  const chains=[[0,1,2,3,4],[0,5,6,7,8],[5,9,10,11,12],[9,13,14,15,16],[13,17,18,19,20],[0,17]];
-  ctx.lineCap='round';ctx.lineJoin='round';ctx.strokeStyle=hand.rock?'#ffe66d':'#70f5ff';ctx.lineWidth=Math.max(3,w*.012);
-  for(const chain of chains){
-    ctx.beginPath();
-    chain.forEach((id,i)=>{const x=(1-lm[id].x)*w+eyeShift,y=lm[id].y*h;i?ctx.lineTo(x,y):ctx.moveTo(x,y)});
-    ctx.stroke();
-  }
-  for(let i=0;i<lm.length;i++){
-    const x=(1-lm[i].x)*w+eyeShift,y=lm[i].y*h;
-    ctx.beginPath();ctx.fillStyle=(i===4||i===8)?'#fff36b':'#24d9ff';ctx.arc(x,y,Math.max(2,w*.009),0,Math.PI*2);ctx.fill();
-  }
+function loop(){
+ if(!running)return;requestAnimationFrame(loop);const dt=Math.min(clock.getDelta(),.033);detectHands(performance.now());update(dt);renderStereo();
 }
-function render(){
-  if(!running)return;
-  const now=performance.now()/1000;
-  const dt=.016;
-  const right=handData.find(h=>h.label==='Right');
-  const left=handData.find(h=>h.label==='Left');
-  if(right?.rock) playerZ=clamp(playerZ+dt*2.5,0,8);
-  if(left?.rock && jump<=0 && now-lastAction>.55){jumpVel=7;jump=0.01;lastAction=now;}
-  if(jump>0){jump+=jumpVel*dt;jumpVel-=17*dt;if(jump<=0){jump=0;jumpVel=0;}}
-  // Open palm gesture gives a playful force-push. Enemies bounce away and reset.
-  const palm=handData.find(h=>h.palm);
-  if(palm && now-lastAction>.45){
-    const lm=palm.lm, hx=1-lm[9].x, hy=lm[9].y;
-    enemies.forEach(e=>{
-      const screenX=.5+e.x/(e.z+3)*.65;
-      const screenY=.50+(hy-.5)*.12;
-      if(Math.abs(screenX-hx)<.23 && Math.abs(screenY-.5)<.35 && e.z<16){
-        e.wobble=1.0;e.z+=2.4;e.x+=(e.x>=0?1:-1)*1.2;score++;
-        document.getElementById('score').textContent=score;
-      }
-    });
-    lastAction=now;
-  }
-  enemies.forEach(e=>{e.wobble=Math.max(0,e.wobble-dt*2.8);e.z-=dt*(.45+playerZ*.22);if(e.z<2.5){e.z=12+Math.random()*8;e.x=(Math.random()-.5)*5;}});
-  const w=canvases[0].width,h=canvases[0].height;
-  canvases.forEach((canvas,eye)=>{
-    const ctx=ctxs[eye],cw=canvas.width,ch=canvas.height;
-    ctx.fillStyle='#111b32';ctx.fillRect(0,0,cw,ch);
-    // Arena sky and distant wall
-    const sky=ctx.createLinearGradient(0,0,0,ch);sky.addColorStop(0,'#243b62');sky.addColorStop(.55,'#586b83');sky.addColorStop(.56,'#8a765c');sky.addColorStop(1,'#4b382c');
-    ctx.fillStyle=sky;ctx.fillRect(0,0,cw,ch);
-    const shift=Math.sin(yaw)*cw*.07+(eye===0?7:-7);
-    // Arena wall blocks
-    ctx.fillStyle='rgba(27,38,55,.55)';
-    for(let i=0;i<7;i++)ctx.fillRect(i*cw/7+shift*.2,ch*.28,cw/7-3,ch*.24);
-    // Ground perspective lines
-    ctx.strokeStyle='rgba(255,226,173,.22)';ctx.lineWidth=2;
-    for(let i=0;i<9;i++){ctx.beginPath();ctx.moveTo(cw/2+shift,ch*.52);ctx.lineTo(i*cw/8,ch);ctx.stroke();}
-    for(let i=0;i<5;i++){const yy=ch*(.58+i*i*.018);ctx.beginPath();ctx.moveTo(0,yy);ctx.lineTo(cw,yy);ctx.stroke();}
-    // First-person gloves
-    const gloveY=ch*.82-jump*ch*.035;
-    ctx.fillStyle='#d97706';ctx.beginPath();ctx.ellipse(cw*.22+shift*.3,gloveY,cw*.12,ch*.085,-.25,0,Math.PI*2);ctx.fill();
-    ctx.fillStyle='#f59e0b';ctx.beginPath();ctx.ellipse(cw*.78+shift*.3,gloveY,cw*.12,ch*.085,.25,0,Math.PI*2);ctx.fill();
-    // First-person stylized sword, held in the right hand.
-    ctx.save();
-    ctx.translate(cw*.78+shift*.3,gloveY-ch*.035);
-    ctx.rotate(-.30);
-    ctx.fillStyle='#6b4428';ctx.fillRect(-cw*.018,0,cw*.036,ch*.09);
-    ctx.fillStyle='#d6b36d';ctx.fillRect(-cw*.045,ch*.075,cw*.09,ch*.018);
-    ctx.fillStyle='#cbd8e5';
-    ctx.beginPath();ctx.moveTo(-cw*.025,ch*.08);ctx.lineTo(cw*.025,ch*.08);
-    ctx.lineTo(cw*.018,-ch*.32);ctx.lineTo(0,-ch*.39);
-    ctx.lineTo(-cw*.018,-ch*.32);ctx.closePath();ctx.fill();
-    ctx.strokeStyle='#fff';ctx.lineWidth=2;
-    ctx.beginPath();ctx.moveTo(0,ch*.06);ctx.lineTo(0,-ch*.33);ctx.stroke();
-    ctx.restore();
-    ctx.fillStyle='#fff1d6';ctx.font=`${Math.max(12,cw*.035)}px system-ui`;ctx.textAlign='center';
-    ctx.fillText('ARENA ESPARTANA',cw/2,ch*.10);
-    // Draw enemies far-to-near
-    [...enemies].sort((a,b)=>b.z-a.z).forEach(e=>{
-      const scale=1/(e.z*.12+.22);
-      const size=clamp(cw*.22*scale,18,cw*.36);
-      const x=cw/2+e.x*size*.75+shift;
-      const y=ch*.52+size*.30;
-      ctx.save();if(e.wobble)ctx.translate(Math.sin(now*35)*size*.18,0);
-      drawSpartan(ctx,x,y-jump*ch*.035,size,e.color,now+e.bob);
-      if(e.wobble>.1){
-        ctx.fillStyle='#fff7ad';ctx.font=`bold ${Math.max(12,size*.18)}px system-ui`;ctx.fillText('¡CLANG!',x,y-size*.65);
-        ctx.strokeStyle='#fff2a8';ctx.lineWidth=Math.max(2,size*.018);
-        for(let k=0;k<8;k++){
-          const a=k*Math.PI/4+now*5, r=size*(.28+e.wobble*.12);
-          ctx.beginPath();ctx.moveTo(x+Math.cos(a)*r,y-size*.2+Math.sin(a)*r);
-          ctx.lineTo(x+Math.cos(a)*(r+size*.10),y-size*.2+Math.sin(a)*(r+size*.10));ctx.stroke();
-        }
-      }
-      ctx.restore();
-    });
-    handData.forEach(hand=>drawHand(ctx,hand,cw,ch,shift));
-    // Small crosshair
-    ctx.strokeStyle='rgba(255,255,255,.65)';ctx.lineWidth=2;ctx.beginPath();ctx.arc(cw/2+shift,ch*.49,7,0,Math.PI*2);ctx.stroke();
-  });
-  requestAnimationFrame(render);
+async function begin(withCamera){
+ $('#start').disabled=true;$('#noCam').disabled=true;
+ try{await enableSensors();}catch(e){status.textContent=e.message+' · Se inicia sin giroscopio.';}
+ if(withCamera)await startHands();
+ if(!renderer){makeRenderer();buildArena();initPhysics();for(let i=0;i<2;i++)spawnEnemy();}
+ menu.style.display='none';hud.style.display='block';$('#exitHint').style.display='block';running=true;clock.start();loop();
 }
-async function start(){
-  document.getElementById('start').disabled=true;
-  statusEl.textContent='Solicitando permiso de cámara…';
-  try{
-    stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}}});
-    video.srcObject=stream;await video.play();
-    if(typeof Hands==='undefined')throw new Error('No se pudo cargar MediaPipe. Revisá tu conexión.');
-    handsModel=new Hands({locateFile:(file)=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
-    handsModel.setOptions({maxNumHands:2,modelComplexity:1,minDetectionConfidence:.55,minTrackingConfidence:.5});
-    handsModel.onResults(onResults);
-    // Safari iOS puede exigir un gesto del usuario para habilitar sensores.
-    if(typeof DeviceOrientationEvent!=='undefined' && typeof DeviceOrientationEvent.requestPermission==='function'){
-      try{const permission=await DeviceOrientationEvent.requestPermission();if(permission==='granted')window.addEventListener('deviceorientation',e=>{yaw=(e.gamma||0)*Math.PI/180;pitch=(e.beta||0)*Math.PI/180;});}catch(e){}
-    }else{
-      window.addEventListener('deviceorientation',e=>{yaw=(e.gamma||0)*Math.PI/180;pitch=(e.beta||0)*Math.PI/180;});
-    }
-    panel.style.display='none';running=true;resize();render();
-    async function detect(){
-      if(!running)return;
-      try{await handsModel.send({image:video});}catch(e){}
-      requestAnimationFrame(detect);
-    }
-    detect();
-  }catch(err){
-    statusEl.textContent='No se pudo iniciar: '+err.message+'. Abrí esta página desde HTTPS en Safari y aceptá los permisos.';
-    document.getElementById('start').disabled=false;
-    if(stream)stream.getTracks().forEach(t=>t.stop());
-  }
-}
-document.getElementById('start').addEventListener('click',start);
-document.getElementById('exit').addEventListener('click',()=>{running=false;if(stream)stream.getTracks().forEach(t=>t.stop());panel.style.display='block';document.getElementById('start').disabled=false;});
+$('#start').addEventListener('click',()=>begin(true));
+$('#noCam').addEventListener('click',()=>begin(false));
+window.addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHeight,false);}});
+window.addEventListener('keydown',e=>{if(e.key.toLowerCase()==='r'&&running)spawnEnemy();});
+window.addEventListener('pointerdown',()=>{if(running&&enemies.filter(e=>!e.dead).length<2)spawnEnemy();});
+document.addEventListener('visibilitychange',()=>{if(document.hidden&&running){running=false;}else if(!document.hidden&&renderer&&menu.style.display==='none'){running=true;clock.start();loop();}});
 </script>
 </body>
 </html>
