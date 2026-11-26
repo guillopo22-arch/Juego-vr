@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Cardboard Hand VR</title>
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#050816;color:#fff;font-family:system-ui,-apple-system,Segoe UI,sans-serif}
+  #stage{position:fixed;inset:0;display:flex;background:#050816}
+  .eye{position:relative;width:50%;height:100%;overflow:hidden;border-right:1px solid #26324d}
+  canvas{width:100%;height:100%;display:block}
+  #video{position:fixed;width:2px;height:2px;opacity:.01;left:-10px;top:-10px}
+  #panel{position:fixed;z-index:5;left:50%;top:50%;transform:translate(-50%,-50%);width:min(90vw,430px);padding:22px;border:1px solid #52617f;border-radius:20px;background:rgba(8,14,31,.96);box-shadow:0 12px 60px #000b;text-align:center}
+  h1{font-size:25px;margin:0 0 8px}
+  p{font-size:14px;line-height:1.45;color:#cbd5e1}
+  button{border:0;border-radius:13px;padding:14px 18px;background:#5b8cff;color:#fff;font-size:16px;font-weight:700;width:100%;margin-top:8px}
+  #status{font-size:12px;color:#9fb4d8;margin-top:12px}
+  #hud{position:fixed;z-index:3;top:12px;left:50%;transform:translateX(-50%);background:#071226cc;padding:8px 14px;border:1px solid #52617f;border-radius:99px;font-size:13px;white-space:nowrap}
+  #hint{position:fixed;z-index:3;bottom:12px;left:50%;transform:translateX(-50%);background:#071226cc;padding:7px 12px;border-radius:12px;font-size:12px;color:#dbeafe;text-align:center;width:max-content;max-width:90vw}
+  #exit{position:fixed;z-index:6;right:10px;top:10px;width:auto;padding:9px 12px;font-size:12px;background:#25334f}
+#rotateNotice{display:none;position:fixed;inset:0;z-index:20;background:#050816;color:#fff;align-items:center;justify-content:center;text-align:center;padding:28px;font-size:22px;font-weight:700}
+@media (orientation: portrait){
+  #rotateNotice{display:flex}
+}
+</style>
+</head>
+<body>
+<div id="rotateNotice">📱 Girá el celular en horizontal para jugar con Cardboard.</div>\n<div id="stage">
+  <div class="eye"><canvas id="left"></canvas></div>
+  <div class="eye"><canvas id="right"></canvas></div>
+</div>
+<video id="video" autoplay playsinline muted></video>
+<button id="exit">Salir</button>
+<div id="hud">Espartanos rebotados: <b id="score">0</b> · Manos: <b id="hands">0</b></div>
+<div id="hint">🤘 Derecha: avanzar · 🤘 Izquierda: saltar · Palma abierta: empujar espartanos</div>
+<div id="panel">
+  <h1>🖐️ Cardboard Hand VR</h1>
+  <p>Arena arcade de espartanos con manos virtuales y controles por gestos.</p>
+  <p><b>Preparación:</b> permití el acceso a la cámara y al movimiento. Usá el celular en horizontal y dejá libre la cámara trasera.</p>
+  <button id="start">Iniciar experiencia</button>
+  <div id="status">Necesita conexión a internet para cargar el detector de manos.</div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script>
+const video=document.getElementById('video');
+const panel=document.getElementById('panel');
+const statusEl=document.getElementById('status');
+const canvases=[document.getElementById('left'),document.getElementById('right')];
+const ctxs=canvases.map(c=>c.getContext('2d'));
+let stream=null, handsModel=null, running=false, handData=[], score=0, yaw=0, pitch=0;
+let playerZ=0, jump=0, jumpVel=0, lastAction=0, enemies=[];
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+function resize(){
+  canvases.forEach(c=>{const r=c.parentElement.getBoundingClientRect();c.width=Math.max(1,Math.floor(r.width*devicePixelRatio));c.height=Math.max(1,Math.floor(r.height*devicePixelRatio));});
+}
+window.addEventListener('resize',resize); resize();
+
+function makeEnemies(){
+  enemies=[];
+  for(let i=0;i<5;i++) enemies.push({
+    x:(Math.random()-.5)*5,
+    z:5+Math.random()*12,
+    bob:Math.random()*6.28,
+    wobble:0,
+    color:['#7dd3fc','#c4b5fd','#86efac','#fcd34d','#f9a8d4'][i]
+  });
+}
+makeEnemies();
+
+function isUp(lm,tip,pip){return lm[tip].y < lm[pip].y;}
+function isRock(lm){
+  // Rock horns: index and pinky extended; middle and ring folded.
+  return isUp(lm,8,6) && isUp(lm,20,18) && !isUp(lm,12,10) && !isUp(lm,16,14);
+}
+function isOpenPalm(lm){
+  return isUp(lm,8,6)&&isUp(lm,12,10)&&isUp(lm,16,14)&&isUp(lm,20,18);
+}
+function onResults(results){
+  handData=[];
+  if(!results.multiHandLandmarks)return;
+  for(let i=0;i<results.multiHandLandmarks.length;i++){
+    const lm=results.multiHandLandmarks[i];
+    const rawLabel=results.multiHandedness?.[i]?.label || (i===0?'Right':'Left');
+    // MediaPipe handedness assumes a mirrored selfie image; the rear camera is not mirrored.
+    const label=rawLabel==='Right'?'Left':'Right';
+    handData.push({lm,label,rock:isRock(lm),palm:isOpenPalm(lm)});
+  }
+  document.getElementById('hands').textContent=handData.length;
+}
+function roundedRect(ctx,x,y,w,h,r){
+  ctx.beginPath();ctx.roundRect(x,y,w,h,r);ctx.fill();
+}
+function drawSpartan(ctx,x,y,size,color,t){
+  // Human-proportioned Spartan fighter, rendered as a detailed 2D game character.
+  ctx.save();
+  ctx.translate(x,y+Math.sin(t)*size*.012);
+  const s=size;
+  ctx.lineCap='round';ctx.lineJoin='round';
+
+  // Ground shadow
+  ctx.fillStyle='rgba(0,0,0,.32)';
+  ctx.beginPath();ctx.ellipse(0,s*.52,s*.43,s*.09,0,0,Math.PI*2);ctx.fill();
+
+  // Legs: thighs, knees, calves and leather sandals
+  ctx.fillStyle='#b77a55';
+  ctx.beginPath();ctx.moveTo(-s*.23,s*.13);ctx.quadraticCurveTo(-s*.31,s*.28,-s*.23,s*.43);ctx.lineTo(-s*.10,s*.43);ctx.lineTo(-s*.07,s*.16);ctx.closePath();ctx.fill();
+  ctx.beginPath();ctx.moveTo(s*.07,s*.16);ctx.lineTo(s*.10,s*.43);ctx.lineTo(s*.23,s*.43);ctx.quadraticCurveTo(s*.31,s*.28,s*.23,s*.13);ctx.closePath();ctx.fill();
+  ctx.fillStyle='#d0a078';
+  ctx.beginPath();ctx.ellipse(-s*.17,s*.31,s*.075,s*.105,-.1,0,Math.PI*2);ctx.fill();
+  ctx.beginPath();ctx.ellipse(s*.17,s*.31,s*.075,s*.105,.1,0,Math.PI*2);ctx.fill();
+  // Bronze greaves
+  ctx.fillStyle='#b78343';
+  ctx.beginPath();ctx.moveTo(-s*.245,s*.29);ctx.lineTo(-s*.095,s*.29);ctx.lineTo(-s*.10,s*.46);ctx.lineTo(-s*.23,s*.46);ctx.closePath();ctx.fill();
+  ctx.beginPath();ctx.moveTo(s*.095,s*.29);ctx.lineTo(s*.245,s*.29);ctx.lineTo(s*.23,s*.46);ctx.lineTo(s*.10,s*.46);ctx.closePath();ctx.fill();
+  ctx.strokeStyle='#e7bd75';ctx.lineWidth=s*.012;
+  ctx.beginPath();ctx.moveTo(-s*.17,s*.31);ctx.lineTo(-s*.17,s*.43);ctx.moveTo(s*.17,s*.31);ctx.lineTo(s*.17,s*.43);ctx.stroke();
+  ctx.fillStyle='#4b3026';
+  ctx.beginPath();ctx.ellipse(-s*.18,s*.49,s*.13,s*.045,-.06,0,Math.PI*2);ctx.fill();
+  ctx.beginPath();ctx.ellipse(s*.18,s*.49,s*.13,s*.045,.06,0,Math.PI*2);ctx.fill();
+
+  // Neck and realistic torso silhouette
+  ctx.fillStyle='#b77a55';
+  ctx.fillRect(-s*.085,-s*.20,s*.17,s*.16);
+  ctx.fillStyle='#c58a62';
+  ctx.beginPath();
+  ctx.moveTo(-s*.12,-s*.12);
+  ctx.quadraticCurveTo(-s*.30,-s*.16,-s*.38,-s*.04);
+  ctx.lineTo(-s*.31,s*.18);
+  ctx.quadraticCurveTo(0,s*.27,s*.31,s*.18);
+  ctx.lineTo(s*.38,-s*.04);
+  ctx.quadraticCurveTo(s*.30,-s*.16,s*.12,-s*.12);
+  ctx.closePath();ctx.fill();
+
+  // Arms with shoulder, biceps and forearms visible around armor
+  ctx.fillStyle='#b77a55';
+  ctx.beginPath();ctx.ellipse(-s*.36,s*.00,s*.105,s*.17,-.22,0,Math.PI*2);ctx.fill();
+  ctx.beginPath();ctx.ellipse(s*.36,s*.00,s*.105,s*.17,.22,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#ce936b';
+  ctx.beginPath();ctx.ellipse(-s*.40,s*.17,s*.075,s*.14,-.18,0,Math.PI*2);ctx.fill();
+  ctx.beginPath();ctx.ellipse(s*.40,s*.17,s*.075,s*.14,.18,0,Math.PI*2);ctx.fill();
+
+  // Red leather skirt panels
+  ctx.fillStyle='#8f2527';
+  ctx.beginPath();ctx.moveTo(-s*.29,s*.13);ctx.lineTo(s*.29,s*.13);ctx.lineTo(s*.25,s*.31);ctx.lineTo(-s*.25,s*.31);ctx.closePath();ctx.fill();
+  for(let i=-2;i<=2;i++){
+    ctx.fillStyle=i%2?'#b83232':'#7f2024';
+    ctx.beginPath();ctx.moveTo(i*s*.105-s*.045,s*.16);ctx.lineTo(i*s*.105+s*.045,s*.16);ctx.lineTo(i*s*.105+s*.055,s*.30);ctx.lineTo(i*s*.105-s*.055,s*.30);ctx.closePath();ctx.fill();
+  }
+
+  // Bronze cuirass shaped to the chest, with highlights and engraved details
+  ctx.fillStyle='#98652f';
+  ctx.beginPath();
+  ctx.moveTo(-s*.28,-s*.12);ctx.quadraticCurveTo(-s*.19,-s*.23,0,-s*.18);
+  ctx.quadraticCurveTo(s*.19,-s*.23,s*.28,-s*.12);
+  ctx.lineTo(s*.24,s*.12);ctx.quadraticCurveTo(0,s*.20,-s*.24,s*.12);ctx.closePath();ctx.fill();
+  const metal=ctx.createLinearGradient(-s*.25,0,s*.25,0);
+  metal.addColorStop(0,'#9b6b36');metal.addColorStop(.45,'#f0cf87');metal.addColorStop(1,'#8a592a');
+  ctx.fillStyle=metal;
+  ctx.beginPath();ctx.moveTo(-s*.245,-s*.12);ctx.quadraticCurveTo(-s*.16,-s*.19,0,-s*.16);ctx.quadraticCurveTo(s*.16,-s*.19,s*.245,-s*.12);ctx.lineTo(s*.20,s*.105);ctx.quadraticCurveTo(0,s*.17,-s*.20,s*.105);ctx.closePath();ctx.fill();
+  ctx.strokeStyle='#79502c';ctx.lineWidth=s*.012;
+  ctx.beginPath();ctx.moveTo(0,-s*.14);ctx.lineTo(0,s*.13);ctx.moveTo(-s*.17,-s*.04);ctx.quadraticCurveTo(0,s*.02,s*.17,-s*.04);ctx.stroke();
+
+  // Shield on the left side of the warrior (right side of viewer)
+  ctx.fillStyle='#6b4529';
+  ctx.beginPath();ctx.ellipse(s*.46,s*.12,s*.16,s*.25,.12,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#bd873e';
+  ctx.beginPath();ctx.ellipse(s*.46,s*.12,s*.145,s*.23,.12,0,Math.PI*2);ctx.fill();
+  ctx.strokeStyle='#f0cf87';ctx.lineWidth=s*.018;ctx.stroke();
+  ctx.fillStyle='#7f2928';
+  ctx.beginPath();ctx.arc(s*.46,s*.12,s*.085,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#f4d28b';
+  ctx.beginPath();ctx.arc(s*.46,s*.12,s*.035,0,Math.PI*2);ctx.fill();
+
+  // Short Greek xiphos sword held in the warrior's free hand.
+  ctx.save();
+  ctx.translate(-s*.43,s*.12);
+  ctx.rotate(-.20);
+  ctx.fillStyle='#6b4428';
+  ctx.fillRect(-s*.035,-s*.07,s*.07,s*.15);
+  ctx.fillStyle='#d7ad68';
+  ctx.fillRect(-s*.075,s*.055,s*.15,s*.035);
+  ctx.fillStyle='#c5d4e2';
+  ctx.beginPath();
+  ctx.moveTo(-s*.045,s*.08);ctx.lineTo(s*.045,s*.08);
+  ctx.lineTo(s*.035,-s*.30);ctx.lineTo(0,-s*.39);
+  ctx.lineTo(-s*.035,-s*.30);ctx.closePath();ctx.fill();
+  ctx.strokeStyle='#f7fbff';ctx.lineWidth=s*.009;
+  ctx.beginPath();ctx.moveTo(0,s*.07);ctx.lineTo(0,-s*.34);ctx.stroke();
+  ctx.restore();
+
+  // Human head, jaw, ears, nose, eyes and beard stubble
+  ctx.fillStyle='#b77a55';
+  ctx.beginPath();ctx.moveTo(-s*.15,-s*.39);ctx.quadraticCurveTo(-s*.17,-s*.23,-s*.10,-s*.17);
+  ctx.quadraticCurveTo(0,-s*.11,s*.10,-s*.17);ctx.quadraticCurveTo(s*.17,-s*.23,s*.15,-s*.39);
+  ctx.quadraticCurveTo(0,-s*.50,-s*.15,-s*.39);ctx.fill();
+  ctx.fillStyle='#c98d65';
+  ctx.beginPath();ctx.ellipse(-s*.16,-s*.31,s*.035,s*.065,0,0,Math.PI*2);ctx.fill();
+  ctx.beginPath();ctx.ellipse(s*.16,-s*.31,s*.035,s*.065,0,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#33251f';
+  ctx.beginPath();ctx.ellipse(-s*.065,-s*.33,s*.022,s*.014,0,0,Math.PI*2);ctx.fill();
+  ctx.beginPath();ctx.ellipse(s*.065,-s*.33,s*.022,s*.014,0,0,Math.PI*2);ctx.fill();
+  ctx.strokeStyle='#70432f';ctx.lineWidth=s*.012;
+  ctx.beginPath();ctx.moveTo(-s*.09,-s*.36);ctx.lineTo(-s*.035,-s*.37);ctx.moveTo(s*.035,-s*.37);ctx.lineTo(s*.09,-s*.36);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(0,-s*.33);ctx.lineTo(-s*.018,-s*.27);ctx.lineTo(s*.018,-s*.27);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(-s*.045,-s*.225);ctx.quadraticCurveTo(0,-s*.20,s*.045,-s*.225);ctx.stroke();
+  // Short dark beard
+  ctx.fillStyle='#50352b';
+  ctx.beginPath();ctx.moveTo(-s*.11,-s*.235);ctx.quadraticCurveTo(0,-s*.15,s*.11,-s*.235);ctx.lineTo(s*.065,-s*.17);ctx.quadraticCurveTo(0,-s*.12,-s*.065,-s*.17);ctx.closePath();ctx.fill();
+
+  // Bronze Corinthian helmet with cheek guards and red horsehair crest
+  ctx.fillStyle='#8b5b2d';
+  ctx.beginPath();ctx.arc(0,-s*.39,s*.19,Math.PI,Math.PI*2);ctx.lineTo(s*.18,-s*.30);ctx.lineTo(-s*.18,-s*.30);ctx.closePath();ctx.fill();
+  const helm=ctx.createLinearGradient(-s*.17,0,s*.17,0);
+  helm.addColorStop(0,'#94612d');helm.addColorStop(.5,'#f0cb7a');helm.addColorStop(1,'#9c652e');
+  ctx.fillStyle=helm;
+  ctx.beginPath();ctx.arc(0,-s*.39,s*.17,Math.PI,Math.PI*2);ctx.lineTo(s*.16,-s*.30);ctx.lineTo(-s*.16,-s*.30);ctx.closePath();ctx.fill();
+  ctx.fillStyle='#a3262b';
+  ctx.beginPath();ctx.moveTo(-s*.015,-s*.53);ctx.quadraticCurveTo(-s*.22,-s*.75,s*.02,-s*.77);ctx.quadraticCurveTo(s*.22,-s*.70,s*.09,-s*.51);ctx.closePath();ctx.fill();
+  ctx.fillStyle='#b27a3d';
+  ctx.beginPath();ctx.moveTo(-s*.17,-s*.36);ctx.lineTo(-s*.13,-s*.20);ctx.lineTo(-s*.055,-s*.23);ctx.lineTo(-s*.07,-s*.38);ctx.closePath();ctx.fill();
+  ctx.beginPath();ctx.moveTo(s*.17,-s*.36);ctx.lineTo(s*.13,-s*.20);ctx.lineTo(s*.055,-s*.23);ctx.lineTo(s*.07,-s*.38);ctx.closePath();ctx.fill();
+  ctx.strokeStyle='#f4d28b';ctx.lineWidth=s*.012;
+  ctx.beginPath();ctx.arc(0,-s*.39,s*.17,Math.PI,Math.PI*2);ctx.stroke();
+  ctx.restore();
+}
+function drawHand(ctx,hand,w,h,eyeShift){
+  const lm=hand.lm;
+  const chains=[[0,1,2,3,4],[0,5,6,7,8],[5,9,10,11,12],[9,13,14,15,16],[13,17,18,19,20],[0,17]];
+  ctx.lineCap='round';ctx.lineJoin='round';ctx.strokeStyle=hand.rock?'#ffe66d':'#70f5ff';ctx.lineWidth=Math.max(3,w*.012);
+  for(const chain of chains){
+    ctx.beginPath();
+    chain.forEach((id,i)=>{const x=(1-lm[id].x)*w+eyeShift,y=lm[id].y*h;i?ctx.lineTo(x,y):ctx.moveTo(x,y)});
+    ctx.stroke();
+  }
+  for(let i=0;i<lm.length;i++){
+    const x=(1-lm[i].x)*w+eyeShift,y=lm[i].y*h;
+    ctx.beginPath();ctx.fillStyle=(i===4||i===8)?'#fff36b':'#24d9ff';ctx.arc(x,y,Math.max(2,w*.009),0,Math.PI*2);ctx.fill();
+  }
+}
+function render(){
+  if(!running)return;
+  const now=performance.now()/1000;
+  const dt=.016;
+  const right=handData.find(h=>h.label==='Right');
+  const left=handData.find(h=>h.label==='Left');
+  if(right?.rock) playerZ=clamp(playerZ+dt*2.5,0,8);
+  if(left?.rock && jump<=0 && now-lastAction>.55){jumpVel=7;jump=0.01;lastAction=now;}
+  if(jump>0){jump+=jumpVel*dt;jumpVel-=17*dt;if(jump<=0){jump=0;jumpVel=0;}}
+  // Open palm gesture gives a playful force-push. Enemies bounce away and reset.
+  const palm=handData.find(h=>h.palm);
+  if(palm && now-lastAction>.45){
+    const lm=palm.lm, hx=1-lm[9].x, hy=lm[9].y;
+    enemies.forEach(e=>{
+      const screenX=.5+e.x/(e.z+3)*.65;
+      const screenY=.50+(hy-.5)*.12;
+      if(Math.abs(screenX-hx)<.23 && Math.abs(screenY-.5)<.35 && e.z<16){
+        e.wobble=1.0;e.z+=2.4;e.x+=(e.x>=0?1:-1)*1.2;score++;
+        document.getElementById('score').textContent=score;
+      }
+    });
+    lastAction=now;
+  }
+  enemies.forEach(e=>{e.wobble=Math.max(0,e.wobble-dt*2.8);e.z-=dt*(.45+playerZ*.22);if(e.z<2.5){e.z=12+Math.random()*8;e.x=(Math.random()-.5)*5;}});
+  const w=canvases[0].width,h=canvases[0].height;
+  canvases.forEach((canvas,eye)=>{
+    const ctx=ctxs[eye],cw=canvas.width,ch=canvas.height;
+    ctx.fillStyle='#111b32';ctx.fillRect(0,0,cw,ch);
+    // Arena sky and distant wall
+    const sky=ctx.createLinearGradient(0,0,0,ch);sky.addColorStop(0,'#243b62');sky.addColorStop(.55,'#586b83');sky.addColorStop(.56,'#8a765c');sky.addColorStop(1,'#4b382c');
+    ctx.fillStyle=sky;ctx.fillRect(0,0,cw,ch);
+    const shift=Math.sin(yaw)*cw*.07+(eye===0?7:-7);
+    // Arena wall blocks
+    ctx.fillStyle='rgba(27,38,55,.55)';
+    for(let i=0;i<7;i++)ctx.fillRect(i*cw/7+shift*.2,ch*.28,cw/7-3,ch*.24);
+    // Ground perspective lines
+    ctx.strokeStyle='rgba(255,226,173,.22)';ctx.lineWidth=2;
+    for(let i=0;i<9;i++){ctx.beginPath();ctx.moveTo(cw/2+shift,ch*.52);ctx.lineTo(i*cw/8,ch);ctx.stroke();}
+    for(let i=0;i<5;i++){const yy=ch*(.58+i*i*.018);ctx.beginPath();ctx.moveTo(0,yy);ctx.lineTo(cw,yy);ctx.stroke();}
+    // First-person gloves
+    const gloveY=ch*.82-jump*ch*.035;
+    ctx.fillStyle='#d97706';ctx.beginPath();ctx.ellipse(cw*.22+shift*.3,gloveY,cw*.12,ch*.085,-.25,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#f59e0b';ctx.beginPath();ctx.ellipse(cw*.78+shift*.3,gloveY,cw*.12,ch*.085,.25,0,Math.PI*2);ctx.fill();
+    // First-person stylized sword, held in the right hand.
+    ctx.save();
+    ctx.translate(cw*.78+shift*.3,gloveY-ch*.035);
+    ctx.rotate(-.30);
+    ctx.fillStyle='#6b4428';ctx.fillRect(-cw*.018,0,cw*.036,ch*.09);
+    ctx.fillStyle='#d6b36d';ctx.fillRect(-cw*.045,ch*.075,cw*.09,ch*.018);
+    ctx.fillStyle='#cbd8e5';
+    ctx.beginPath();ctx.moveTo(-cw*.025,ch*.08);ctx.lineTo(cw*.025,ch*.08);
+    ctx.lineTo(cw*.018,-ch*.32);ctx.lineTo(0,-ch*.39);
+    ctx.lineTo(-cw*.018,-ch*.32);ctx.closePath();ctx.fill();
+    ctx.strokeStyle='#fff';ctx.lineWidth=2;
+    ctx.beginPath();ctx.moveTo(0,ch*.06);ctx.lineTo(0,-ch*.33);ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle='#fff1d6';ctx.font=`${Math.max(12,cw*.035)}px system-ui`;ctx.textAlign='center';
+    ctx.fillText('ARENA ESPARTANA',cw/2,ch*.10);
+    // Draw enemies far-to-near
+    [...enemies].sort((a,b)=>b.z-a.z).forEach(e=>{
+      const scale=1/(e.z*.12+.22);
+      const size=clamp(cw*.22*scale,18,cw*.36);
+      const x=cw/2+e.x*size*.75+shift;
+      const y=ch*.52+size*.30;
+      ctx.save();if(e.wobble)ctx.translate(Math.sin(now*35)*size*.18,0);
+      drawSpartan(ctx,x,y-jump*ch*.035,size,e.color,now+e.bob);
+      if(e.wobble>.1){
+        ctx.fillStyle='#fff7ad';ctx.font=`bold ${Math.max(12,size*.18)}px system-ui`;ctx.fillText('¡CLANG!',x,y-size*.65);
+        ctx.strokeStyle='#fff2a8';ctx.lineWidth=Math.max(2,size*.018);
+        for(let k=0;k<8;k++){
+          const a=k*Math.PI/4+now*5, r=size*(.28+e.wobble*.12);
+          ctx.beginPath();ctx.moveTo(x+Math.cos(a)*r,y-size*.2+Math.sin(a)*r);
+          ctx.lineTo(x+Math.cos(a)*(r+size*.10),y-size*.2+Math.sin(a)*(r+size*.10));ctx.stroke();
+        }
+      }
+      ctx.restore();
+    });
+    handData.forEach(hand=>drawHand(ctx,hand,cw,ch,shift));
+    // Small crosshair
+    ctx.strokeStyle='rgba(255,255,255,.65)';ctx.lineWidth=2;ctx.beginPath();ctx.arc(cw/2+shift,ch*.49,7,0,Math.PI*2);ctx.stroke();
+  });
+  requestAnimationFrame(render);
+}
+async function start(){
+  document.getElementById('start').disabled=true;
+  statusEl.textContent='Solicitando permiso de cámara…';
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}}});
+    video.srcObject=stream;await video.play();
+    if(typeof Hands==='undefined')throw new Error('No se pudo cargar MediaPipe. Revisá tu conexión.');
+    handsModel=new Hands({locateFile:(file)=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+    handsModel.setOptions({maxNumHands:2,modelComplexity:1,minDetectionConfidence:.55,minTrackingConfidence:.5});
+    handsModel.onResults(onResults);
+    // Safari iOS puede exigir un gesto del usuario para habilitar sensores.
+    if(typeof DeviceOrientationEvent!=='undefined' && typeof DeviceOrientationEvent.requestPermission==='function'){
+      try{const permission=await DeviceOrientationEvent.requestPermission();if(permission==='granted')window.addEventListener('deviceorientation',e=>{yaw=(e.gamma||0)*Math.PI/180;pitch=(e.beta||0)*Math.PI/180;});}catch(e){}
+    }else{
+      window.addEventListener('deviceorientation',e=>{yaw=(e.gamma||0)*Math.PI/180;pitch=(e.beta||0)*Math.PI/180;});
+    }
+    panel.style.display='none';running=true;resize();render();
+    async function detect(){
+      if(!running)return;
+      try{await handsModel.send({image:video});}catch(e){}
+      requestAnimationFrame(detect);
+    }
+    detect();
+  }catch(err){
+    statusEl.textContent='No se pudo iniciar: '+err.message+'. Abrí esta página desde HTTPS en Safari y aceptá los permisos.';
+    document.getElementById('start').disabled=false;
+    if(stream)stream.getTracks().forEach(t=>t.stop());
+  }
+}
+document.getElementById('start').addEventListener('click',start);
+document.getElementById('exit').addEventListener('click',()=>{running=false;if(stream)stream.getTracks().forEach(t=>t.stop());panel.style.display='block';document.getElementById('start').disabled=false;});
+</script>
+</body>
+</html>
